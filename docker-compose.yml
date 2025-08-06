@@ -1,0 +1,65 @@
+version: '3.8'
+
+# Compose file for the first phase of migrating the POS backend into a
+# containerised environment with an API gateway.  This file defines
+# three services:
+#   * backend – the existing Flask application running in a Python
+#     container.  It exposes port 5000 and connects to the MongoDB
+#     instance via the `MONGO_URI` environment variable.  For local
+#     development you can point this at the `db` service below or
+#     configure it to use your production MongoDB cluster.
+#   * gateway – an Nginx container configured to act as a reverse
+#     proxy/API gateway.  It forwards all HTTP requests to the
+#     backend service.  In later phases this gateway will be updated
+#     to route different paths to individual microservices.
+#   * db – a MongoDB database used by the backend during local
+#     development.  This service is optional; if you supply your own
+#     `MONGO_URI` the db service will not be used.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: pos_backend
+    ports:
+      # Expose the backend on port 5000.  Change the host port if you
+      # already have something running on 5000.
+      - "5000:5000"
+    environment:
+      # MongoDB connection string.  When using the local db service
+      # the default URI is set below.  Override this with your own
+      # connection string in production.
+      - MONGO_URI=mongodb://db:27017/posdb
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: mongo:6
+    container_name: pos_mongo
+    restart: unless-stopped
+    environment:
+      # The default database name to create on initialisation.
+      - MONGO_INITDB_DATABASE=posdb
+    volumes:
+      - mongo_data:/data/db
+
+  gateway:
+    build:
+      context: ./gateway
+    container_name: pos_gateway
+    ports:
+      # Expose the API gateway on port 80.  You can change the host
+      # port to avoid conflicts.
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    volumes:
+      # Mount the Nginx configuration file into the container.  If
+      # changes are made locally, reloading the container will pick
+      # them up.
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  mongo_data:
