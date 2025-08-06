@@ -1,32 +1,31 @@
-# Entry point for the profile/session microservice.  It creates a
-# Flask application that registers the profile blueprint from the
-# original POS backend.  The registered routes handle profile
-# retrieval and update, settings, pending transactions and session
-# management.  Business logic is imported from the monolith and
-# remains unchanged.
-
-import os
-import sys
-
 from flask import Flask
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'flask_app'))
+# Import local Config and blueprint
+from .common.config import Config
+from .profile.routes import profile_bp
 
-from config import Config
-from profile.routes import profile_bp
+def create_app():
+    """Factory to create and configure the Flask application for the profile service."""
+    app = Flask(__name__)
+    CORS(app)
+    # Configure JWT using the local secret key
+    app.config["JWT_SECRET_KEY"] = Config.JWT_SECRET_KEY
+    jwt = JWTManager(app)
 
-app = Flask(__name__)
-CORS(app)
-app.config.from_object(Config)
-jwt = JWTManager(app)
+    # Register the profile blueprint under /api
+    app.register_blueprint(profile_bp, url_prefix="/api")
 
-app.register_blueprint(profile_bp, url_prefix='/api')
+    @app.route("/health", methods=["GET"])
+    def health():
+        """Health endpoint to verify service is running"""
+        return {"status": "profile service healthy"}
 
-@app.route('/')
-def health():
-    return {'status': 'profile service running'}
+    return app
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+
+if __name__ == "__main__":
+    # Run the service with a default port; override via environment if needed
+    app = create_app()
+    app.run(host="0.0.0.0", port=5003, debug=True)
