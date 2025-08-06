@@ -1,65 +1,103 @@
 version: '3.8'
 
-# Compose file for the first phase of migrating the POS backend into a
-# containerised environment with an API gateway.  This file defines
-# three services:
-#   * backend – the existing Flask application running in a Python
-#     container.  It exposes port 5000 and connects to the MongoDB
-#     instance via the `MONGO_URI` environment variable.  For local
-#     development you can point this at the `db` service below or
-#     configure it to use your production MongoDB cluster.
-#   * gateway – an Nginx container configured to act as a reverse
-#     proxy/API gateway.  It forwards all HTTP requests to the
-#     backend service.  In later phases this gateway will be updated
-#     to route different paths to individual microservices.
-#   * db – a MongoDB database used by the backend during local
-#     development.  This service is optional; if you supply your own
-#     `MONGO_URI` the db service will not be used.
+# This compose file defines the second phase of the migration: the
+# monolithic POS backend has been decomposed into domain‑specific
+# microservices.  Each service clones the original repository and
+# registers only its own blueprint.  The API gateway routes
+# incoming HTTP requests based on the URL path prefix to the
+# appropriate service.  A MongoDB instance is provided for local
+# development; you can point services at your production database
+# instead.
 
 services:
-  backend:
+  auth_service:
     build:
-      context: ./backend
-    container_name: pos_backend
-    ports:
-      # Expose the backend on port 5000.  Change the host port if you
-      # already have something running on 5000.
-      - "5000:5000"
+      context: ./auth_service
+    container_name: pos_auth_service
     environment:
-      # MongoDB connection string.  When using the local db service
-      # the default URI is set below.  Override this with your own
-      # connection string in production.
       - MONGO_URI=mongodb://db:27017/posdb
     depends_on:
       - db
     restart: unless-stopped
 
-  db:
-    image: mongo:6
-    container_name: pos_mongo
-    restart: unless-stopped
+  profile_service:
+    build:
+      context: ./profile_service
+    container_name: pos_profile_service
     environment:
-      # The default database name to create on initialisation.
-      - MONGO_INITDB_DATABASE=posdb
-    volumes:
-      - mongo_data:/data/db
+      - MONGO_URI=mongodb://db:27017/posdb
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  catalog_service:
+    build:
+      context: ./catalog_service
+    container_name: pos_catalog_service
+    environment:
+      - MONGO_URI=mongodb://db:27017/posdb
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  transactions_service:
+    build:
+      context: ./transactions_service
+    container_name: pos_transactions_service
+    environment:
+      - MONGO_URI=mongodb://db:27017/posdb
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  orders_service:
+    build:
+      context: ./orders_service
+    container_name: pos_orders_service
+    environment:
+      - MONGO_URI=mongodb://db:27017/posdb
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  admin_panel:
+    build:
+      context: ./admin_panel
+    container_name: pos_admin_panel
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth_service
+      - profile_service
+      - catalog_service
+      - transactions_service
+      - orders_service
+    restart: unless-stopped
 
   gateway:
     build:
       context: ./gateway
-    container_name: pos_gateway
+    container_name: pos_api_gateway
     ports:
-      # Expose the API gateway on port 80.  You can change the host
-      # port to avoid conflicts.
       - "80:80"
     depends_on:
-      - backend
+      - auth_service
+      - profile_service
+      - catalog_service
+      - transactions_service
+      - orders_service
     restart: unless-stopped
     volumes:
-      # Mount the Nginx configuration file into the container.  If
-      # changes are made locally, reloading the container will pick
-      # them up.
       - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  db:
+    image: mongo:6
+    container_name: pos_micro_mongo
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_DATABASE=posdb
+    volumes:
+      - mongo_data:/data/db
 
 volumes:
   mongo_data:
